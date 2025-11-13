@@ -194,11 +194,11 @@
                 (asserts! (> winning-pool u0) (err ERR-NO-POSITION))
                 (asserts! (> total-pool u0) (err ERR-NO-POSITION))
                 
-                ;; Fixed payout calculation with precision handling
-                ;; Use scaling factor to avoid precision loss in integer division
-                (let ((scale-factor u1000000) ;; 6 decimal places of precision
-                      (scaled-numerator (* (* user-winning-amount scale-factor) total-pool))
-                      (payout (/ scaled-numerator winning-pool)))
+                ;; Fixed payout calculation with integer-safe math
+                ;; Compute user share directly to avoid oversized scaled results
+                (let ((numerator (* user-winning-amount total-pool))
+                      (payout (/ numerator winning-pool))
+                      (recipient tx-sender))
                   
                   ;; Ensure payout is reasonable
                   (asserts! (> payout u0) (err ERR-NO-POSITION))
@@ -209,7 +209,7 @@
                     (merge position { claimed: true }))
                   
                   ;; Transfer winnings
-                  (match (as-contract (stx-transfer? payout tx-sender tx-sender))
+                  (match (as-contract (stx-transfer? payout tx-sender recipient))
                     success (ok payout)
                     error 
                       (begin
@@ -243,14 +243,15 @@
                   (merge position { claimed: true }))
                 
                 ;; Return original bet amount
-                (match (as-contract (stx-transfer? user-total tx-sender tx-sender))
-                  success (ok user-total)
-                  error 
-                    (begin
-                      ;; Revert claimed status on transfer failure
-                      (map-set user-positions { market-id: id, user: tx-sender }
-                        (merge position { claimed: false }))
-                      (err ERR-TRANSFER-FAILED)))))
+                (let ((recipient tx-sender))
+                  (match (as-contract (stx-transfer? user-total tx-sender recipient))
+                    success (ok user-total)
+                    error 
+                      (begin
+                        ;; Revert claimed status on transfer failure
+                        (map-set user-positions { market-id: id, user: tx-sender }
+                          (merge position { claimed: false }))
+                        (err ERR-TRANSFER-FAILED))))))
           (err ERR-NO-POSITION))
       (err ERR-MARKET-NOT-FOUND))))
 
